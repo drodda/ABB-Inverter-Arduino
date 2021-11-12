@@ -1,0 +1,5 @@
+.pio/
+build/
+venv/
+.*.swp
+src/defs.h

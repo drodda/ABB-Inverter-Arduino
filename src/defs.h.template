@@ -1,0 +1,30 @@
+#ifndef defs_h__
+#define defs_h__
+
+
+#define PIN_AURORA_TX 12 // D6
+#define PIN_AURORA_RX 13 // D7
+#define PIN_AURORA_TX_CTL 14 // D5. Not needed, as module uses auto flow control
+#define INVERTER_ADDRESS 2
+
+
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
+
+
+#define NTP_OFFSET (0)
+
+
+#define MQTT_HOST ""
+#define MQTT_PORT 1883
+#define MQTT_USER ""
+#define MQTT_PASSWORD ""
+#define MQTT_TOPIC ""
+
+
+#define PVOUTPUT_API_KEY ""
+#define PVOUTPUT_API_SID ""
+
+
+#endif // defs_h__
+
