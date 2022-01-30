@@ -220,7 +220,7 @@ void mqttLog(const char *fmt, ...) {
 // Arduino core functions
 
 void pubSubCallback(char* topic, byte* payload, unsigned int length);
-bool inverterReadTodayEnergy();
+bool inverterReadPVOutputData();
 bool pvOutputSend();
 bool inverterSetTime(void);
 bool inverterOnline(void);
@@ -295,7 +295,7 @@ void loop() {
         // Update time on inverter
         inverterSetTime();
         // Read daily cumilative energy
-        if (inverterReadTodayEnergy()) {
+        if (inverterReadPVOutputData()) {
             pvOutputUpdatePending = true;
             led.flashFast(1);
         } else {
@@ -337,10 +337,11 @@ void pubSubCallback(char* topic, byte* payload, unsigned int length) {
 // Inverter functions
 
 
-unsigned long energyToday = 0;
-unsigned long energyTodayLastUpdate = 0;
-unsigned long energyTodayLastPublished = 0;
-char inverterStatus[2048] = "{}";
+unsigned long pvOutputEnergyToday = 0;
+float         pvOutputPower = NAN;
+unsigned long pvOutputLastUpdate = 0;
+unsigned long pvOutputLastPublished = 0;
+char          inverterStatus[2048] = "{}";
 
 
 bool inverterOnline() {
@@ -366,18 +367,24 @@ float inverterReadDSP(byte type) {
 }
 
 
-bool inverterReadTodayEnergy() {
+bool inverterReadPVOutputData() {
     unsigned long now = getEpochTime();
-    // Read inverter cumulative daily energy, set globals. Returns true on success.
+    // Read inverter cumulative daily energy and current power, set PVOutpu globals. Returns true on success.
     Aurora::DataCumulatedEnergy cumulatedEnergy = inverter.readCumulatedEnergy(CUMULATED_DAILY_ENERGY);
     if (!cumulatedEnergy.state.readState) {
         logInverterState("readCumulatedEnergy CUMULATED_DAILY_ENERGY", &cumulatedEnergy.state);
         return false;
     }
-    energyToday = cumulatedEnergy.energy;
-    energyTodayLastUpdate = now;
-    log("%s: Updated Today's energy: %lu (%lu) = %lu\n", TIME_STR, energyTodayLastUpdate, toLocalTime(now), energyToday);
-    mqttLog("updated Today's energy: %lu (%lu) = %lu", energyTodayLastUpdate, toLocalTime(now), energyToday);
+    pvOutputEnergyToday = cumulatedEnergy.energy;
+    float pIn1 = inverterReadDSP(DSP_PIN1_ALL);
+    float pIn2 = inverterReadDSP(DSP_PIN2);
+    if (isnan(pIn1) || isnan(pIn2)) {
+        return false;
+    }
+    pvOutputPower = pIn1 + pIn2;
+    pvOutputLastUpdate = now;
+    log("%s: Updated Today's energy: %lu (%lu) = %lu, %.2f\n", TIME_STR, pvOutputLastUpdate, toLocalTime(now), pvOutputEnergyToday, pvOutputPower);
+    mqttLog("updated Today's energy: %lu (%lu) = %lu, %.2f", pvOutputLastUpdate, toLocalTime(now), pvOutputEnergyToday, pvOutputPower);
     return true;
 }
 
@@ -474,8 +481,8 @@ void inverterUpdateStatus() {
         now,
         energyToday,
         energyLifetime,
-        energyTodayLastUpdate,
-        energyTodayLastPublished,
+        pvOutputLastUpdate,
+        pvOutputLastPublished,
         pIn_s,
         pIn1_s,
         pIn2_s,
@@ -499,18 +506,18 @@ void inverterUpdateStatus() {
 
 
 bool pvOutputSend() {
-    unsigned long timeLocal = toLocalTime(energyTodayLastUpdate);
-    log("%s: Sending to PV Output: %lu = %lu\n", TIME_STR, timeLocal, energyToday);
+    unsigned long timeLocal = toLocalTime(pvOutputLastUpdate);
+    log("%s: Sending to PV Output: %lu = %lu\n", TIME_STR, timeLocal, pvOutputEnergyToday);
     char post_data[512] = {0};
     snprintf(post_data, sizeof(post_data),
         (
             "d=%04d%02d%02d&"
             "t=%02d:%02d&"
-            "v1=%lu&c1=0"
+            "v1=%lu&c1=0&v2=%.2f"
         ),
         year(timeLocal), month(timeLocal), day(timeLocal),
         hour(timeLocal), minute(timeLocal),
-        energyToday
+        pvOutputEnergyToday, pvOutputPower
     );
     log("%s: Posting to %s: %s\n", TIME_STR, pvoutputAddStatsUrl, post_data);
     HTTPClient http;
@@ -533,7 +540,7 @@ bool pvOutputSend() {
     }
     http.end();
     if (httpCode == 200) {
-        energyTodayLastPublished = getEpochTime();
+        pvOutputLastPublished = getEpochTime();
         return true;
     }
     return false;
